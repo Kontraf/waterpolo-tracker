@@ -24,6 +24,15 @@
             </button>
         </header>
 
+        <div class="px-4 pt-4 flex gap-2">
+            <button onclick="undoLast()" class="flex-1 bg-slate-200 text-slate-800 active:bg-slate-300 font-semibold py-2 px-3 rounded text-sm border border-slate-300">
+                Undo last
+            </button>
+            <button onclick="newMatch()" class="flex-1 bg-white text-red-700 active:bg-red-50 font-semibold py-2 px-3 rounded text-sm border border-red-300">
+                New match
+            </button>
+        </div>
+
         <div class="p-4" id="roster-container">
             </div>
 
@@ -48,18 +57,41 @@
     </div>
 
     <script>
-        // Αρχικοποίηση του ρόστερ (13 παίκτες)
-        // Χρησιμοποιούμε Array από Objects
-        let players = [];
-        for (let i = 1; i <= 13; i++) {
-            players.push({
-                cap: i,
-                goals: 0,
-                shots: 0,
-                steals: 0,
-                exclusions: 0
-            });
+        // Αποθήκευση στο κινητό ώστε να μη χάνονται τα στατιστικά αν κλείσει ή ανανεωθεί η σελίδα
+        const STORAGE_KEY = 'wp-tracker-v1';
+
+        function freshPlayers() {
+            // 13 παίκτες
+            const list = [];
+            for (let i = 1; i <= 13; i++) {
+                list.push({ cap: i, goals: 0, shots: 0, steals: 0, exclusions: 0 });
+            }
+            return list;
         }
+
+        function isValidState(s) {
+            return s && Array.isArray(s.players) && s.players.length === 13 &&
+                s.players.every(p => ['cap', 'goals', 'shots', 'steals', 'exclusions'].every(k => Number.isInteger(p[k]))) &&
+                Array.isArray(s.history);
+        }
+
+        function loadState() {
+            try {
+                const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+                if (isValidState(saved)) return saved;
+            } catch (e) { /* αν η αποθήκευση δεν είναι διαθέσιμη, ξεκινάμε από το μηδέν */ }
+            return { players: freshPlayers(), history: [] };
+        }
+
+        function saveState() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify({ players, history }));
+            } catch (e) { /* ιδιωτική περιήγηση ή γεμάτος χώρος: συνεχίζουμε χωρίς αποθήκευση */ }
+        }
+
+        const state = loadState();
+        let players = state.players;
+        let history = state.history; // λίστα από {index, type} για το Undo
 
         // Συνάρτηση για την εμφάνιση των παικτών στην οθόνη
         function renderRoster() {
@@ -102,6 +134,7 @@
 
         // Συνάρτηση για την προσθήκη στατιστικού
         function addStat(playerIndex, statType) {
+            let applied = true;
             if (statType === 'goal') {
                 players[playerIndex].goals++;
                 players[playerIndex].shots++; // Ένα γκολ μετράει και ως σουτ
@@ -113,10 +146,37 @@
                 if (players[playerIndex].exclusions < 3) {
                     players[playerIndex].exclusions++;
                 } else {
+                    applied = false;
                     alert(`Player ${players[playerIndex].cap} already has 3 exclusions! (Fouled out)`);
                 }
             }
-            
+
+            if (applied) {
+                history.push({ index: playerIndex, type: statType });
+                saveState();
+            }
+            updateSummaryTable();
+        }
+
+        // Αναίρεση της τελευταίας καταγραφής (για λάθος πάτημα)
+        function undoLast() {
+            const last = history.pop();
+            if (!last) return;
+            const p = players[last.index];
+            if (last.type === 'goal') { p.goals--; p.shots--; }
+            else if (last.type === 'shot') { p.shots--; }
+            else if (last.type === 'steal') { p.steals--; }
+            else if (last.type === 'exclusion') { p.exclusions--; }
+            saveState();
+            updateSummaryTable();
+        }
+
+        // Νέος αγώνας: μηδενίζει όλα τα στατιστικά
+        function newMatch() {
+            if (!confirm('Start a new match? All current stats will be cleared. Download the CSV first if you need it.')) return;
+            players = freshPlayers();
+            history = [];
+            saveState();
             updateSummaryTable();
         }
 
